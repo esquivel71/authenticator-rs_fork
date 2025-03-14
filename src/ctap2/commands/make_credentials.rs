@@ -100,6 +100,7 @@ impl MakeCredentialsResult {
         let att_obj = AttestationObject {
             auth_data,
             att_stmt,
+            response_auth: Default::default()
         };
 
         Ok(Self {
@@ -131,6 +132,7 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                 let mut format: Option<&str> = None;
                 let mut auth_data: Option<AuthenticatorData> = None;
                 let mut att_stmt: Option<AttestationStatement> = None;
+                let mut response_auth: Option<[u8;32]> = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -175,6 +177,13 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                                 }
                             }
                         }
+                        4 => {
+                            if response_auth.is_some() {
+                                return Err(DesError::duplicate_field("responseAuth (0x04)"));
+                            }
+                            response_auth = Some(map.next_value()?);
+
+                        }
                         _ => continue,
                     }
                 }
@@ -183,11 +192,13 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                     .ok_or_else(|| M::Error::custom("found no authData (0x02)".to_string()))?;
                 let att_stmt = att_stmt
                     .ok_or_else(|| M::Error::custom("found no attStmt (0x03)".to_string()))?;
+                let response_auth = response_auth;
 
                 Ok(MakeCredentialsResult {
                     att_obj: AttestationObject {
                         auth_data,
                         att_stmt,
+                        response_auth
                     },
                     attachment: AuthenticatorAttachment::Unknown,
                     extensions: Default::default(),
