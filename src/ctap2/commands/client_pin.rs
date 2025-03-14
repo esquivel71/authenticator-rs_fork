@@ -621,6 +621,8 @@ pub enum PinError {
     UvBlocked,
     /// Used for CTAP2.0 UV (fingerprints)
     PinAuthInvalid,
+    CannotAuthenticateResponse, // CTAP2.1+
+    InvalidResponseSignature, // CTAP2.1+
     Crypto(CryptoError),
 }
 
@@ -651,6 +653,10 @@ impl fmt::Display for PinError {
             PinError::PinNotSet => write!(f, "Pin needed but not set on device."),
             PinError::UvBlocked => write!(f, "No retries left. Uv blocked. Device needs reset."),
             PinError::PinAuthInvalid => write!(f, "PinAuth invalid."),
+            // CTAP2.1+
+            PinError::CannotAuthenticateResponse => write!(f, "Could not authenticate token response! (CTAP2.1+ only)"),
+            // CTAP2.1+
+            PinError::InvalidResponseSignature => write!(f, "Invalid signature in token response! (CTAP2.1+ only)"),
             PinError::Crypto(ref e) => write!(f, "Crypto backend error: {e:?}"),
         }
     }

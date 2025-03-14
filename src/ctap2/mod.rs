@@ -6,6 +6,8 @@ pub mod preflight;
 pub mod server;
 pub(crate) mod utils;
 
+use attestation::AttestationStatement;
+
 use crate::authenticatorservice::{RegisterArgs, SignArgs};
 use crate::crypto::COSEAlgorithm;
 use crate::ctap2::client_data::ClientDataHash;
@@ -203,6 +205,7 @@ fn get_pin_uv_auth_param<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>(
     uv_req: UserVerificationRequirement,
     alive: &dyn Fn() -> bool,
     pin: &Option<Pin>,
+    mutual_authentication: Option<bool> // CTAP2.1+
 ) -> Result<PinUvAuthResult, AuthenticatorError> {
     // CTAP 2.1 is very specific that the request should either include pinUvAuthParam
     // OR uv=true, but not both at the same time. We now have to decide which (if either)
@@ -260,9 +263,13 @@ fn get_pin_uv_auth_param<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>(
     if info.options.pin_uv_auth_token == Some(true) {
         if !skip_uv && supports_uv {
             // CTAP 2.1 - UV
-            let pin_auth_token = dev
+            let mut pin_auth_token = dev
                 .get_pin_uv_auth_token_using_uv_with_permissions(permission, cmd.get_rp_id(), alive)
                 .map_err(|e| repackage_pin_errors(dev, e))?;
+            // CTAP2.1+
+            if let Some(true) = mutual_authentication {
+                pin_auth_token.expand()?;
+            }
             cmd.set_pin_uv_auth_param(Some(pin_auth_token.clone()))?;
             Ok(PinUvAuthResult::SuccessGetPinUvAuthTokenUsingUvWithPermissions(pin_auth_token))
         } else {
@@ -271,7 +278,7 @@ fn get_pin_uv_auth_param<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>(
             // `(skip_uv || !supports_uv)`. Moreover we did not exit early in the
             // `(skip_uv || !supports_uv) && !pin_configured` case. So we have
             // `pin_configured`.
-            let pin_auth_token = dev
+            let mut pin_auth_token = dev
                 .get_pin_uv_auth_token_using_pin_with_permissions(
                     pin,
                     permission,
@@ -279,6 +286,10 @@ fn get_pin_uv_auth_param<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>(
                     alive,
                 )
                 .map_err(|e| repackage_pin_errors(dev, e))?;
+            // CTAP2.1+
+            if let Some(true) = mutual_authentication {
+                pin_auth_token.expand()?;
+            }
             cmd.set_pin_uv_auth_param(Some(pin_auth_token.clone()))?;
             Ok(PinUvAuthResult::SuccessGetPinUvAuthTokenUsingPinWithPermissions(pin_auth_token))
         }
@@ -298,9 +309,13 @@ fn get_pin_uv_auth_param<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>(
             return Ok(PinUvAuthResult::UsingInternalUv);
         }
 
-        let pin_auth_token = dev
+        let mut pin_auth_token = dev
             .get_pin_token(pin, alive)
             .map_err(|e| repackage_pin_errors(dev, e))?;
+        // CTAP2.1+
+        if let Some(true) = mutual_authentication {
+            pin_auth_token.expand()?;
+        }
         cmd.set_pin_uv_auth_param(Some(pin_auth_token.clone()))?;
         Ok(PinUvAuthResult::SuccessGetPinToken(pin_auth_token))
     }
@@ -324,11 +339,12 @@ fn determine_puap_if_needed<Dev: FidoDevice, T: PinUvAuthCommand + RequestCtap2>
     status: &Sender<StatusUpdate>,
     alive: &dyn Fn() -> bool,
     pin: &mut Option<Pin>,
+    mutual_authentication: Option<bool> // CTAP2.1+
 ) -> Result<PinUvAuthResult, AuthenticatorError> {
     while alive() {
         debug!("-----------------------------------------------------------------");
         debug!("Getting pinUvAuthParam");
-        match get_pin_uv_auth_param(cmd, dev, permission, skip_uv, uv_req, alive, pin) {
+        match get_pin_uv_auth_param(cmd, dev, permission, skip_uv, uv_req, alive, pin, mutual_authentication) {
             Ok(r) => {
                 return Ok(r);
             }
@@ -419,7 +435,13 @@ pub fn register<Dev: FidoDevice>(
                 Some(info.options.resident_key)
             }
             ResidentKeyRequirement::Discouraged => Some(false),
+        };
+        // CTAP2.1+
+        options.mutual_authentication = match info.max_supported_version() {
+            AuthenticatorVersion::FIDO_2_1_P => Some(args.mutual_authentication.unwrap_or(false)),
+            _ => None
         }
+
     } else {
         // Check that the request can be processed by a CTAP1 device.
         // See CTAP 2.1 Section 10.2. Some additional checks are performed in
@@ -495,6 +517,8 @@ pub fn register<Dev: FidoDevice>(
                 &status,
                 alive,
                 &mut pin,
+                // CTAP2.1+
+                options.mutual_authentication
             ),
             callback
         );
@@ -536,6 +560,27 @@ pub fn register<Dev: FidoDevice>(
         let resp = dev.send_msg_cancellable(&makecred, alive);
         match resp {
             Ok(result) => {
+                // CTAP2.1+ step to verify the response from the authenticator
+                if let Some(true) = options.mutual_authentication {
+                    if let Some(mut pin_token) = pin_uv_auth_result.get_pin_uv_auth_token() {
+                        let mut to_verify = [0u8; 676 + 32 + 77]; // MAX size of auth_data + (optional) large blob key + (optional) att_stmt signature
+                        let ser_auth_data = &result.att_obj.auth_data.to_vec();
+                        let mut size = ser_auth_data.len();
+                        to_verify[..size].copy_from_slice(ser_auth_data.as_slice());
+    
+                        if let AttestationStatement::Packed(packed) = &&result.att_obj.att_stmt {
+                            let siglen = packed.sig.0.len();
+                            to_verify[size..size + siglen].copy_from_slice(packed.sig.0.as_slice());
+                            size += siglen;
+                        }
+    
+                        let auth_result = pin_token.verify_response(&to_verify[..size], &result.att_obj.response_auth.unwrap_or([0u8;32])).unwrap_or(false);
+                        if !auth_result {
+                            callback.call(Err(AuthenticatorError::PinError(PinError::InvalidResponseSignature)));
+                            return false;
+                        }
+                    }
+                }
                 callback.call(Ok(result));
                 return true;
             }
@@ -589,14 +634,21 @@ pub fn sign<Dev: FidoDevice>(
         }
     }
 
+    let options = GetAssertionOptions {
+            user_presence: Some(args.user_presence_req),
+            user_verification: None,
+            // CTAP2.1+
+            mutual_authentication: match dev.get_authenticator_info().expect("At this point this should never be None").max_supported_version() {
+                AuthenticatorVersion::FIDO_2_1_P => Some(args.mutual_authentication.unwrap_or(false)),
+                _ => None
+            }
+        };
+
     let mut get_assertion = GetAssertion::new(
         client_data_hash,
         rp_id,
         allow_list,
-        GetAssertionOptions {
-            user_presence: Some(args.user_presence_req),
-            user_verification: None,
-        },
+        options,
         args.extensions.into(),
     );
 
@@ -613,6 +665,8 @@ pub fn sign<Dev: FidoDevice>(
                 &status,
                 alive,
                 &mut pin,
+                // CTAP2.1+
+                options.mutual_authentication
             ),
             callback
         );
@@ -682,9 +736,32 @@ pub fn sign<Dev: FidoDevice>(
             }
         };
         if results.len() == 1 {
+            // CTAP2.1+ step to verify the response from the authenticator
+            // We do this only in the case of a single assertion response for simplicity
+            if let Some(true) = options.mutual_authentication {
+                if let Some(mut pin_token) = pin_uv_auth_result.get_pin_uv_auth_token() {
+                    let assertion_object = results.get(0).expect("If we are here, results has exactly one element");
+                    let mut to_verify = [0u8; 676 + 77 + 77]; // MAX size of auth_data + (optional) assertion signature + (optional) attestation sig?
+                    // Authenticator data 
+                    let ser_auth_data = assertion_object.assertion.auth_data.to_vec();
+                    let mut size = ser_auth_data.len();
+                    to_verify[..size].copy_from_slice(ser_auth_data.as_slice());
+                    // Assertion signature
+                    let sig = assertion_object.assertion.signature.as_slice();
+                    to_verify[size..size + sig.len()].copy_from_slice(sig);
+                    size += sig.len();
+                    let auth_result = pin_token.verify_response(&to_verify[..size], &assertion_object.assertion.response_auth.unwrap_or([0u8;32])).unwrap_or(false);
+                    if !auth_result {
+                        callback.call(Err(AuthenticatorError::PinError(PinError::InvalidResponseSignature)));
+                        return false;
+                    }
+                }
+            }
+        
             callback.call(Ok(results.swap_remove(0)));
             return true;
         }
+
         let (tx, rx) = channel();
         let user_entities = results
             .iter()
@@ -924,6 +1001,8 @@ pub(crate) fn bio_enrollment(
                     &status,
                     alive,
                     &mut pin,
+                    // CTAP2.1+
+                    None
                 ),
                 callback
             );
@@ -1194,6 +1273,8 @@ pub(crate) fn credential_management(
                     &status,
                     alive,
                     &mut pin,
+                    // CTAP2.1+
+                    None
                 ),
                 callback
             );
@@ -1478,6 +1559,8 @@ pub(crate) fn configure_authenticator(
                     &status,
                     alive,
                     &mut pin,
+                    // CTAP2.1+
+                    None
                 ),
                 callback
             );

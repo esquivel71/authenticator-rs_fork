@@ -41,6 +41,9 @@ pub struct GetAssertionOptions {
     pub user_verification: Option<bool>,
     #[serde(rename = "up", skip_serializing_if = "Option::is_none")]
     pub user_presence: Option<bool>,
+    // CTAP2.1+ -> request mutual authentication from authenticator if supported
+    #[serde(rename = "ma", skip_serializing_if = "Option::is_none")]
+    pub mutual_authentication: Option<bool>,
 }
 
 impl Default for GetAssertionOptions {
@@ -48,6 +51,8 @@ impl Default for GetAssertionOptions {
         Self {
             user_presence: Some(true),
             user_verification: None,
+            // CTAP2.1+
+            mutual_authentication: None
         }
     }
 }
@@ -661,6 +666,8 @@ pub struct Assertion {
     pub auth_data: AuthenticatorData,
     pub signature: Vec<u8>,
     pub user: Option<PublicKeyCredentialUserEntity>,
+    // CTAP2.1+ -> authentication over assertion response
+    pub response_auth: Option<[u8;32]>,
 }
 
 impl From<GetAssertionResponse> for Assertion {
@@ -670,6 +677,8 @@ impl From<GetAssertionResponse> for Assertion {
             auth_data: r.auth_data,
             signature: r.signature,
             user: r.user,
+            // CTAP2.1+
+            response_auth: r.response_auth,
         }
     }
 }
@@ -710,6 +719,8 @@ impl GetAssertionResult {
             signature,
             user: None,
             auth_data,
+            // CTAP2.1+
+            response_auth: None
         };
 
         Ok(GetAssertionResult {
@@ -727,6 +738,8 @@ pub struct GetAssertionResponse {
     pub signature: Vec<u8>,
     pub user: Option<PublicKeyCredentialUserEntity>,
     pub number_of_credentials: Option<usize>,
+    // CTAP2.1+
+    pub response_auth: Option<[u8;32]>,
 }
 
 impl CtapResponse for GetAssertionResponse {}
@@ -754,6 +767,8 @@ impl<'de> Deserialize<'de> for GetAssertionResponse {
                 let mut signature = None;
                 let mut user = None;
                 let mut number_of_credentials = None;
+                // CTAP2.1+
+                let mut response_auth = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -789,6 +804,13 @@ impl<'de> Deserialize<'de> for GetAssertionResponse {
                             }
                             number_of_credentials = Some(map.next_value()?);
                         }
+                        // CTAP2.1+
+                        11 => {
+                            if response_auth.is_some() {
+                                return Err(DesError::duplicate_field("responseAuth (0x0b)"));
+                            }
+                            response_auth = Some(map.next_value()?);
+                        }
                         k => return Err(M::Error::custom(format!("unexpected key: {k:?}"))),
                     }
                 }
@@ -802,6 +824,8 @@ impl<'de> Deserialize<'de> for GetAssertionResponse {
                     signature,
                     user,
                     number_of_credentials,
+                    // CTAP2.1+
+                    response_auth,
                 })
             }
         }
@@ -874,6 +898,8 @@ pub mod test {
             GetAssertionOptions {
                 user_presence: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             Default::default(),
         );
@@ -998,6 +1024,8 @@ pub mod test {
                 display_name: Some("John P. Smith".to_string()),
             }),
             auth_data: expected_auth_data,
+            // CTAP2.1+
+            response_auth: None,
         };
 
         let expected = vec![GetAssertionResult {
@@ -1056,6 +1084,8 @@ pub mod test {
             options: GetAssertionOptions {
                 user_presence: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             pin_uv_auth_param: Some(PinUvAuthParam::create_empty()),
         };
@@ -1113,6 +1143,8 @@ pub mod test {
             options: GetAssertionOptions {
                 user_presence: None,
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             pin_uv_auth_param: Some(PinUvAuthParam::create_test(
                 2,
@@ -1158,6 +1190,8 @@ pub mod test {
             options: GetAssertionOptions {
                 user_presence: None,
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             pin_uv_auth_param: None,
         };
@@ -1179,6 +1213,8 @@ pub mod test {
             options: GetAssertionOptions {
                 user_presence: None,
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             pin_uv_auth_param: None,
         };
@@ -1260,6 +1296,8 @@ pub mod test {
             GetAssertionOptions {
                 user_presence: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             Default::default(),
         );
@@ -1318,6 +1356,8 @@ pub mod test {
             ],
             user: None,
             auth_data: expected_auth_data,
+            // CTAP2.1+
+            response_auth: None
         };
 
         let expected = vec![GetAssertionResult {
@@ -1349,6 +1389,8 @@ pub mod test {
             GetAssertionOptions {
                 user_presence: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             Default::default(),
         );
@@ -1460,6 +1502,8 @@ pub mod test {
             ],
             user: None,
             auth_data: expected_auth_data,
+            // CTAP2.1+
+            response_auth: None
         };
 
         let expected = vec![GetAssertionResult {
@@ -1529,6 +1573,8 @@ pub mod test {
             GetAssertionOptions {
                 user_presence: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             Default::default(),
         );
@@ -2836,6 +2882,7 @@ pub mod test {
                     },
                     signature: vec![],
                     user: None,
+                    response_auth: None
                 },
                 attachment: AuthenticatorAttachment::Unknown,
                 extensions: AuthenticationExtensionsClientOutputs::default(),

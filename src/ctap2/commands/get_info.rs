@@ -304,6 +304,7 @@ impl Default for AuthenticatorOptions {
     }
 }
 
+// CTAP2.1+ -> names must match the string names in CBOR payload
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AuthenticatorVersion {
@@ -311,6 +312,8 @@ pub enum AuthenticatorVersion {
     FIDO_2_0,
     FIDO_2_1_PRE,
     FIDO_2_1,
+    // CTAP2.1+
+    FIDO_2_1_P,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -350,11 +353,13 @@ impl AuthenticatorInfo {
 
     pub fn max_supported_version(&self) -> AuthenticatorVersion {
         let versions = vec![
+            // CTAP2.1+
+            AuthenticatorVersion::FIDO_2_1_P,
             AuthenticatorVersion::FIDO_2_1,
             AuthenticatorVersion::FIDO_2_1_PRE,
             AuthenticatorVersion::FIDO_2_0,
             AuthenticatorVersion::U2F_V2,
-        ];
+        ];  
         for ver in versions {
             if self.versions.contains(&ver) {
                 return ver;
@@ -806,6 +811,8 @@ pub mod tests {
                 AuthenticatorVersion::FIDO_2_0,
                 AuthenticatorVersion::FIDO_2_1_PRE,
                 AuthenticatorVersion::FIDO_2_1,
+                // CTAP2.1+
+                AuthenticatorVersion::FIDO_2_1_P,
             ],
             extensions: vec![
                 "credProtect".to_string(),
@@ -996,6 +1003,21 @@ pub mod tests {
         assert_eq!(
             fido2_1.max_supported_version(),
             AuthenticatorVersion::FIDO_2_1
+        );
+        // CTAP2.1+
+        let fido2_1_p = AuthenticatorInfo {
+            versions: vec![
+                AuthenticatorVersion::FIDO_2_1_P,
+                AuthenticatorVersion::FIDO_2_1_PRE,
+                AuthenticatorVersion::FIDO_2_1,
+                AuthenticatorVersion::U2F_V2,
+                AuthenticatorVersion::FIDO_2_0,
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            fido2_1_p.max_supported_version(),
+            AuthenticatorVersion::FIDO_2_1_P
         );
     }
 

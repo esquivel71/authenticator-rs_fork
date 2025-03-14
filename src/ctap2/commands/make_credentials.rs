@@ -100,6 +100,8 @@ impl MakeCredentialsResult {
         let att_obj = AttestationObject {
             auth_data,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
 
         Ok(Self {
@@ -131,6 +133,8 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                 let mut format: Option<&str> = None;
                 let mut auth_data: Option<AuthenticatorData> = None;
                 let mut att_stmt: Option<AttestationStatement> = None;
+                // CTAP2.1+
+                let mut response_auth: Option<[u8;32]> = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -175,6 +179,14 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                                 }
                             }
                         }
+                        // CTAP2.1+
+                        7 => {
+                            if response_auth.is_some() {
+                                return Err(DesError::duplicate_field("responseAuth (0x07)"));
+                            }
+                            response_auth = Some(map.next_value()?);
+
+                        }
                         _ => continue,
                     }
                 }
@@ -183,11 +195,15 @@ impl<'de> Deserialize<'de> for MakeCredentialsResult {
                     .ok_or_else(|| M::Error::custom("found no authData (0x02)".to_string()))?;
                 let att_stmt = att_stmt
                     .ok_or_else(|| M::Error::custom("found no attStmt (0x03)".to_string()))?;
+                // CTAP2.1+
+                let response_auth = response_auth;
 
                 Ok(MakeCredentialsResult {
                     att_obj: AttestationObject {
                         auth_data,
                         att_stmt,
+                        // CTAP2.1+
+                        response_auth
                     },
                     attachment: AuthenticatorAttachment::Unknown,
                     extensions: Default::default(),
@@ -210,6 +226,10 @@ pub struct MakeCredentialsOptions {
     pub user_verification: Option<bool>,
     // TODO(MS): ctap2.1 supports user_presence, but ctap2.0 does not and tokens will error out
     //           Commands need a version-flag to know what to de/serialize and what to ignore.
+    // CTAP2.1+ -> request mutual authentication from authenticator if supported
+    #[serde(rename = "ma", skip_serializing_if = "Option::is_none")]
+    pub mutual_authentication: Option<bool>,
+
 }
 
 impl MakeCredentialsOptions {
@@ -698,6 +718,8 @@ pub mod test {
             MakeCredentialsOptions {
                 resident_key: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None
             },
             Default::default(),
         );
@@ -767,6 +789,8 @@ pub mod test {
             options: MakeCredentialsOptions {
                 resident_key: Some(true),
                 user_verification: Some(true),
+                // CTAP2.1+
+                mutual_authentication: Some(true),
             },
             pin_uv_auth_param: Some({
                 let mut p = PinUvAuthParam::create_empty();
@@ -839,6 +863,8 @@ pub mod test {
             MakeCredentialsOptions {
                 resident_key: Some(true),
                 user_verification: None,
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             Default::default(),
         );
@@ -957,6 +983,8 @@ pub mod test {
                     0x5F, 0x06, 0x07, 0x33, 0xF5,
                 ])],
             }),
+            // CTAP2.1+
+            response_auth: Default::default()
         };
 
         let expected = MakeCredentialsResult {

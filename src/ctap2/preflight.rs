@@ -160,6 +160,10 @@ pub(crate) fn do_credential_list_filtering_ctap2<Dev: FidoDevice>(
             GetAssertionOptions {
                 user_verification: None, // defaults to Some(false) if puap is absent
                 user_presence: Some(false),
+                // CTAP2.1+
+                mutual_authentication: if let Some(pin_token) = pin_uv_auth_token.clone() {
+                    Some(pin_token.is_expanded())
+                } else { None }
             },
             GetAssertionExtensions::default(),
         );
@@ -257,6 +261,8 @@ pub mod tests {
             GetAssertionOptions {
                 user_verification: None, // defaults to Some(false) if puap is absent
                 user_presence: Some(false),
+                // CTAP2.1+
+                mutual_authentication: None,
             },
             GetAssertionExtensions::default(),
         )
@@ -297,6 +303,8 @@ pub mod tests {
                 },
                 signature: vec![],
                 user: None,
+                // CTAP2.1+
+                response_auth: None
             },
             attachment: AuthenticatorAttachment::Platform,
             extensions: AuthenticationExtensionsClientOutputs::default(),

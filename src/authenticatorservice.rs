@@ -25,6 +25,8 @@ pub struct RegisterArgs {
     pub resident_key_req: ResidentKeyRequirement,
     pub extensions: AuthenticationExtensionsClientInputs,
     pub pin: Option<Pin>,
+    // CTAP2.1+
+    pub mutual_authentication: Option<bool>, // Only for benchmarking CTAP2.1+
     pub use_ctap1_fallback: bool,
 }
 
@@ -39,6 +41,8 @@ pub struct SignArgs {
     pub extensions: AuthenticationExtensionsClientInputs,
     pub pin: Option<Pin>,
     pub use_ctap1_fallback: bool,
+    // CTAP2.1+
+    pub mutual_authentication: Option<bool>,
 }
 
 pub trait AuthenticatorTransport {
@@ -452,6 +456,8 @@ mod tests {
                     extensions: Default::default(),
                     pin: None,
                     use_ctap1_fallback: false,
+                    // CTAP2.1+
+                    mutual_authentication: None
                 },
                 status_tx.clone(),
                 StateCallback::new(Box::new(move |_rv| {})),
@@ -528,6 +534,8 @@ mod tests {
                     extensions: Default::default(),
                     pin: None,
                     use_ctap1_fallback: false,
+                    // CTAP2.1+
+                    mutual_authentication: None
                 },
                 status_tx,
                 callback.clone(),
@@ -623,6 +631,8 @@ mod tests {
                     extensions: Default::default(),
                     pin: None,
                     use_ctap1_fallback: false,
+                    // CTAP2.1+
+                    mutual_authentication: None
                 },
                 status_tx,
                 callback.clone(),

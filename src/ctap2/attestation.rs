@@ -560,6 +560,8 @@ pub struct AttestationObject {
     pub auth_data: AuthenticatorData,
     #[serde(flatten)]
     pub att_stmt: AttestationStatement,
+    // CTAP2.1+
+    pub response_auth: Option<[u8;32]>,
 }
 
 impl AttestationObject {
@@ -585,6 +587,8 @@ impl Serialize for AttestationObject {
             &"fmt" => self.att_stmt.id(),
             &"attStmt" => &self.att_stmt,
             &"authData" => &self.auth_data,
+            // CTAP2.1+
+            &"responseAuth" => &self.response_auth,
         )
     }
 }
@@ -955,6 +959,8 @@ pub mod test {
                     0xa2, 0x37, 0x23, 0xf3,
                 ])],
             }),
+            // CTAP2.1+
+            response_auth: Default::default()
         }
     }
 
@@ -1185,6 +1191,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1233,6 +1241,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1281,6 +1291,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1341,6 +1353,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1402,6 +1416,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1458,6 +1474,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,
@@ -1528,6 +1546,8 @@ pub mod test {
         let att_obj = AttestationObject {
             auth_data: serde_cbor::de::from_slice(&SAMPLE_AUTH_DATA_MAKE_CREDENTIAL)?,
             att_stmt,
+            // CTAP2.1+
+            response_auth: Default::default()
         };
         assert_eq!(
             serde_cbor::ser::to_vec(&att_obj)?,

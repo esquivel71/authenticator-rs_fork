@@ -48,6 +48,8 @@ fn main() {
     opts.optflag("s", "hmac_secret", "With hmac-secret");
     opts.optflag("h", "help", "print this help menu");
     opts.optflag("f", "fallback", "Use CTAP1 fallback implementation");
+    // CTAP2.1+
+    opts.optflag("m", "mutual_authentication", "Toggle mutual authentication (CTAP2.1+)");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => panic!("{}", f.to_string()),
@@ -76,6 +78,12 @@ fn main() {
             return;
         }
     };
+
+    // CTAP2.1+
+    let ma = matches.opt_present("mutual_authentication");
+    if ma {
+        println!("Mutual authentication requested...");
+    }
 
     println!("Asking a security key to register now...");
     let mut chall_bytes = [0u8; 32];
@@ -191,6 +199,8 @@ fn main() {
         },
         pin: None,
         use_ctap1_fallback: fallback,
+        // CTAP2.1+
+        mutual_authentication: Some(ma),
     };
 
     let attestation_object;
@@ -247,6 +257,8 @@ fn main() {
         },
         pin: None,
         use_ctap1_fallback: fallback,
+        // CTAP2.1+
+        mutual_authentication: Some(ma)
     };
 
     loop {

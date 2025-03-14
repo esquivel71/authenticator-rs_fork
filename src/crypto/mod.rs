@@ -157,7 +157,9 @@ impl TryFrom<&AuthenticatorInfo> for PinUvAuthProtocol {
                     return Ok(PinUvAuthProtocol(Box::new(PinUvAuth1 {})))
                 }
                 crate::ctap2::commands::get_info::AuthenticatorVersion::FIDO_2_1_PRE
-                | crate::ctap2::commands::get_info::AuthenticatorVersion::FIDO_2_1 => {
+                | crate::ctap2::commands::get_info::AuthenticatorVersion::FIDO_2_1
+                // CTAP2.1+
+                | crate::ctap2::commands::get_info::AuthenticatorVersion::FIDO_2_1_P => {
                     return Ok(PinUvAuthProtocol(Box::new(PinUvAuth2 {})))
                 }
             }
@@ -330,6 +332,8 @@ impl SharedSecret {
             pin_protocol: self.pin_protocol.clone(),
             pin_token,
             permissions,
+            client_key: Default::default(), // CTAP2.1+
+            token_key: Default::default(), // CTAP2.1+
         })
     }
     pub fn authenticate(&self, message: &[u8]) -> Result<Vec<u8>, CryptoError> {
@@ -365,16 +369,46 @@ pub struct PinUvAuthToken {
     pub pin_protocol: PinUvAuthProtocol,
     pin_token: Vec<u8>,
     pub permissions: PinUvAuthTokenPermission,
+    client_key: Option<Vec<u8>>, // CTAP2.1+
+    token_key: Option<Vec<u8>>, // CTAP2.1+
 }
 
 impl PinUvAuthToken {
     pub fn derive(self, message: &[u8]) -> Result<PinUvAuthParam, CryptoError> {
-        let pin_auth = self.pin_protocol.0.authenticate(&self.pin_token, message)?;
+        let key = &self.client_key.unwrap_or(self.pin_token);
+        let pin_auth = self.pin_protocol.0.authenticate(&key[..], message)?;
         Ok(PinUvAuthParam {
             pin_auth,
             pin_protocol: self.pin_protocol,
             permissions: self.permissions,
         })
+    }
+
+    // CTAP2.1+ -> function to expand pintoken into two 32-bit keys
+    pub fn expand(&mut self) -> Result<(), CryptoError> {
+        if (self.is_expanded()) {
+            return Ok(())
+        }
+        let prk = hmac_sha256(&[0u8; 32], &self.pin_token)?;
+        let client_key = hmac_sha256(&prk, "CTAP2.1+ Client key\x01".as_bytes())?;
+        let token_key = hmac_sha256(&prk, "CTAP2.1+ Token key\x01".as_bytes())?;
+        self.client_key = Some(client_key);
+        self.token_key = Some(token_key);
+        Ok(())
+    }
+
+    // CTAP2.1+ -> verify the token response using the token_key from expand
+    pub fn verify_response(&mut self, data: &[u8], signature: &[u8]) -> Result<bool, AuthenticatorError> {
+        if !self.is_expanded() {
+            return Err(AuthenticatorError::PinError(crate::PinError::CannotAuthenticateResponse));
+        }
+        let key = &self.token_key.as_ref().unwrap()[0..32];
+        Ok(&hmac_sha256(key, data)?[..] == signature)
+    }
+
+    // CTAP2.1+
+    pub fn is_expanded(&self) -> bool {
+        self.client_key.is_some() && self.token_key.is_some()
     }
 }
 

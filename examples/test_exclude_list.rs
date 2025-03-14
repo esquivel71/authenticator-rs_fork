@@ -233,6 +233,8 @@ fn main() {
         use_ctap1_fallback: false,
         user_verification_req: UserVerificationRequirement::Preferred,
         user_presence_req: true,
+        // CTAP2.1+
+        mutual_authentication: None
     };
 
     let mut no_cred_errors_done = false;
